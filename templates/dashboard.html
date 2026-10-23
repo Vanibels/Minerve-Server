@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}Tableau de bord{% endblock %}
+{% block content %}
+<h1>Tableau de bord</h1>
+<p class="muted">Mesures des dernières 24 h. Les heures sont en UTC.</p>
+
+{% if not devices %}
+<div class="card"><p>Aucun appareil lié. Lance l'agent sur ton ordinateur : il ouvrira cette page pour se lier à ton compte.</p></div>
+{% else %}
+<div class="grid">
+<div class="card"><div class="muted">Disponibilité du foyer</div>
+<div class="big">{% if home.availability is not none %}{{ "%.1f"|format(home.availability) }} %{% else %}n/d{% endif %}</div></div>
+<div class="card"><div class="muted">Latence moyenne du foyer</div>
+<div class="big">{% if home.latency is not none %}{{ "%.0f"|format(home.latency) }} ms{% else %}n/d{% endif %}</div></div>
+{% for op in operators %}
+<div class="card"><div class="muted">Opérateur : {{ op.name }}</div>
+{% if op.enough %}
+<div class="big">{{ "%.0f"|format(op.latency) if op.latency is not none else "n/d" }} ms</div>
+<div class="muted">disponibilité {{ "%.1f"|format(op.availability) if op.availability is not none else "n/d" }} % · {{ op.agents }} appareils</div>
+{% else %}
+<div class="muted">Pas assez d'appareils sur cet opérateur pour comparer ({{ op.agents }}).</div>
+{% endif %}</div>
+{% endfor %}
+</div>
+
+<h2>Appareils</h2>
+<div class="card table-wrap"><table>
+<tr><th>Appareil</th><th>Interface</th><th>État</th><th>Disponibilité</th><th>Latence</th><th>Débit</th><th>Opérateur</th></tr>
+{% for d in devices %}
+<tr>
+<td>{{ d.hostname }}</td>
+<td>{{ d.interface }} ({{ d.kind }})</td>
+<td><span class="pill {{ 's-en' if d.state == 'en ligne' else ('s-ho' if d.state == 'hors ligne' else 's-in') }}">{{ d.state }}</span></td>
+<td>{% if d.availability is not none %}{{ "%.1f"|format(d.availability) }} %{% else %}n/d{% endif %}</td>
+<td>{% if d.latency is not none %}{{ "%.0f"|format(d.latency) }} ms{% else %}n/d{% endif %}</td>
+<td>{% if d.bandwidth is not none %}{{ "%.1f"|format(d.bandwidth) }} Mbit/s{% else %}n/d{% endif %}</td>
+<td>{{ d.last.fai if d.last and d.last.fai else "n/d" }}</td>
+</tr>
+{% endfor %}
+</table></div>
+{% endif %}
+
+<h2>Historique des incidents</h2>
+<div class="card table-wrap">
+{% if incidents %}
+<table>
+<tr><th>Appareil</th><th>Début (UTC)</th><th>Fin (UTC)</th><th>Durée</th><th>Portée</th></tr>
+{% for i in incidents %}
+<tr>
+<td>{{ i.hostname }}</td>
+<td>{{ i.started_at.strftime('%d/%m %H:%M:%S') }}</td>
+<td>{{ i.ended_at.strftime('%d/%m %H:%M:%S') if i.ended_at else "en cours" }}</td>
+<td>{{ i.duration_s | duration }}</td>
+<td class="{{ 'sc-op' if i.scope == 'opérateur' else ('sc-fo' if i.scope == 'foyer' else 'sc-ap') }}">{{ i.scope }}</td>
+</tr>
+{% endfor %}
+</table>
+{% else %}
+<p class="muted">Aucun incident enregistré.</p>
+{% endif %}
+</div>
+{% endblock %}

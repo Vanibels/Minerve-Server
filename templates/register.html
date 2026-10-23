@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Créer un compte{% endblock %}
+{% block content %}
+<div class="card narrow">
+<h1>Créer un compte</h1>
+{% if claim %}<p class="muted">L'appareil qui vient de se connecter sera lié automatiquement à ce compte.</p>{% endif %}
+<form method="post">
+<input type="hidden" name="csrf" value="{{ csrf_token() }}">
+<label for="email">E-mail</label>
+<input id="email" type="email" name="email" required autocomplete="email">
+<label for="password">Mot de passe (8 caractères minimum)</label>
+<input id="password" type="password" name="password" required minlength="8" autocomplete="new-password">
+<button>Créer mon compte</button>
+</form>
+<p class="muted">Déjà un compte ? <a href="{{ url_for('login') }}">Se connecter</a></p>
+</div>
+{% endblock %}
