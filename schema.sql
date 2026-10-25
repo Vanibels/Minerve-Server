@@ -1,3 +1,5 @@
+-- À exécuter une fois dans l'éditeur SQL de Neon.
+
 CREATE TABLE IF NOT EXISTS users (
     id            bigserial PRIMARY KEY,
     email         text UNIQUE NOT NULL,
@@ -5,6 +7,7 @@ CREATE TABLE IF NOT EXISTS users (
     created_at    timestamptz NOT NULL DEFAULT now()
 );
 
+-- Un compte = un foyer ; ses agents sont les appareils du foyer.
 CREATE TABLE IF NOT EXISTS agents (
     uid        text PRIMARY KEY,
     user_id    bigint REFERENCES users(id) ON DELETE SET NULL,

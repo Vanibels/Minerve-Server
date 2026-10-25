@@ -1,3 +1,5 @@
+"""Serveur de supervision réseau : API des agents + interface web (Flask, Neon, Vercel)."""
+
 import hashlib
 import hmac
 import math
@@ -9,19 +11,20 @@ from datetime import datetime, timezone
 from functools import wraps
 
 import psycopg
-from flask import Flask, abort, flash, g, jsonify, redirect, render_template,request, session, url_for
+from flask import (Flask, abort, flash, g, jsonify, redirect, render_template,
+                   request, session, url_for)
 from psycopg.rows import dict_row
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash, generate_password_hash
 
 ON_VERCEL = bool(os.environ.get("VERCEL"))
 if ON_VERCEL and not os.environ.get("SECRET_KEY"):
-    raise RuntimeError("SECRET_KEY Variable manquante")
+    raise RuntimeError("SECRET_KEY doit être défini dans les variables d'environnement Vercel.")
 
 app = Flask(__name__)
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 app.config.update(
-    SECRET_KEY=os.environ.get("SECRET_KEY", "cookies"),
+    SECRET_KEY=os.environ.get("SECRET_KEY", "dev-only-change-me"),
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
     SESSION_COOKIE_SECURE=ON_VERCEL,
@@ -30,12 +33,15 @@ app.config.update(
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 STATUSES = {"online", "offline", "interface_unavailable"}
-MIN_AGENTS_PER_OPERATOR = 3
-OPERATOR_SHARE = 0.5
+MIN_AGENTS_PER_OPERATOR = 3      # en dessous, pas de comparaison ni d'incident d'opérateur
+OPERATOR_SHARE = 0.5             # part d'agents en incident pour parler d'incident d'opérateur
+PERIODS = {"24h": ("24 heures", "24 hours"), "7j": ("7 jours", "7 days"), "30j": ("30 jours", "30 days")}
 
+
+# --- Base de données (Neon) ------------------------------------------------
 def db():
     if "db" not in g:
-        g.db = psycopg.connect(os.environ["DATABASE_URL"], autocommit=True, row_factory=dict_row)
+        g.db = psycopg.connect(os.environ["DATABASE_URL"], autocommit=True, row_factory=dict_row, prepare_threshold=None)
     return g.db
 
 
@@ -44,7 +50,9 @@ def close_db(_error):
     conn = g.pop("db", None)
     if conn is not None:
         conn.close()
-        
+
+
+# --- Utilitaires -----------------------------------------------------------
 def sha(value):
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
@@ -73,6 +81,7 @@ def text(value, limit=200):
 
 
 def truncate_ip(ip):
+    """Minimisation : on ne garde pas l'adresse publique complète."""
     if not ip:
         return None
     ip = str(ip)[:60]
@@ -92,6 +101,7 @@ def duration_filter(seconds):
     return f"{minutes} min {secs} s" if minutes else f"{secs} s"
 
 
+# --- Sécurité des formulaires web -----------------------------------------
 def csrf_token():
     if "csrf" not in session:
         session["csrf"] = secrets.token_urlsafe(24)
@@ -134,6 +144,7 @@ def start_session(user_id):
 
 
 def link_pending_claim(user_id):
+    """Lie à ce compte l'agent dont le code de liaison est en attente dans la session."""
     code = session.pop("claim", None)
     if not code:
         return None
@@ -144,6 +155,8 @@ def link_pending_claim(user_id):
     ).fetchone()
     return (row["hostname"] or "Appareil") if row else None
 
+
+# --- Pages : comptes -------------------------------------------------------
 @app.route("/")
 def index():
     return redirect(url_for("dashboard" if session.get("user_id") else "login"))
@@ -199,6 +212,7 @@ def logout():
 
 @app.route("/link/<code>", methods=["GET", "POST"])
 def link(code):
+    """Page ouverte par l'agent à sa première connexion."""
     agent = db().execute(
         "SELECT hostname, os, interface, kind FROM agents WHERE claim_hash = %s AND user_id IS NULL",
         (sha(code),),
@@ -219,7 +233,10 @@ def link(code):
         return redirect(url_for("dashboard"))
     return render_template("link.html", agent=agent)
 
+
+# --- Page : tableau de bord ------------------------------------------------
 def incident_scope(incident, user_id):
+    """Portée d'un incident : appareil, foyer (compte) ou opérateur."""
     end = incident["ended_at"] or datetime.now(timezone.utc)
     if incident["asn"]:
         active = db().execute(
@@ -302,6 +319,60 @@ def dashboard():
     return render_template("dashboard.html", devices=devices, home=home,
                            operators=list(operators.values()), incidents=incidents)
 
+
+# --- Page : comparatif des opérateurs --------------------------------------
+@app.route("/operateurs")
+@login_required
+def operators_page():
+    key = request.args.get("periode", "24h")
+    if key not in PERIODS:
+        key = "24h"
+    label, interval = PERIODS[key]
+
+    rows = db().execute(
+        "SELECT asn, max(fai) AS name, count(DISTINCT agent_uid) AS agents, count(*) AS total, "
+        "count(*) FILTER (WHERE status = 'online') AS online, "
+        "avg(latency_ms) FILTER (WHERE status = 'online') AS latency, "
+        "percentile_cont(0.5) WITHIN GROUP (ORDER BY latency_ms) FILTER (WHERE status = 'online') AS median, "
+        "avg(bandwidth_mbps) AS bandwidth "
+        "FROM measures WHERE asn IS NOT NULL AND ts > now() - %s::interval GROUP BY asn",
+        (interval,),
+    ).fetchall()
+    incidents = {
+        r["asn"]: r for r in db().execute(
+            "SELECT asn, count(*) AS incidents, count(DISTINCT agent_uid) AS affected, "
+            "coalesce(sum(duration_s), 0) AS downtime FROM incidents "
+            "WHERE asn IS NOT NULL AND started_at > now() - %s::interval GROUP BY asn",
+            (interval,),
+        ).fetchall()
+    }
+    mine = {
+        r["asn"] for r in db().execute(
+            "SELECT DISTINCT ON (m.agent_uid) m.asn FROM measures m JOIN agents a ON a.uid = m.agent_uid "
+            "WHERE a.user_id = %s AND m.asn IS NOT NULL ORDER BY m.agent_uid, m.ts DESC",
+            (g.user["id"],),
+        ).fetchall()
+    }
+
+    ranked, hidden = [], []
+    for row in rows:
+        row["name"] = row["name"] or row["asn"]
+        row["availability"] = 100 * row["online"] / row["total"] if row["total"] else None
+        row.update(incidents.get(row["asn"], {"incidents": 0, "affected": 0, "downtime": 0}))
+        row["mine"] = row["asn"] in mine
+        (ranked if row["agents"] >= MIN_AGENTS_PER_OPERATOR else hidden).append(row)
+    ranked.sort(key=lambda r: (-(r["availability"] or 0), r["median"] if r["median"] is not None else 1e9))
+
+    best_availability = ranked[0] if ranked else None
+    with_latency = [r for r in ranked if r["median"] is not None]
+    best_latency = min(with_latency, key=lambda r: r["median"]) if with_latency else None
+    return render_template(
+        "operators.html", ranked=ranked, hidden=hidden, periods=PERIODS, period=key, label=label,
+        best_availability=best_availability, best_latency=best_latency, minimum=MIN_AGENTS_PER_OPERATOR,
+    )
+
+
+# --- API des agents --------------------------------------------------------
 def agent_auth():
     uid = request.headers.get("X-Agent-UID", "")
     header = request.headers.get("Authorization", "")
