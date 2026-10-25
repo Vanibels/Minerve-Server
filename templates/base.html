@@ -3,7 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{% block title %}Supervision réseau{% endblock %}</title>
+<link rel="shortcut icon" href="../static/Minerve.png" type="image/x-icon">
+<title>{% block title %} | Minerve{% endblock %}</title>
 <style>
 :root{--bg:#f5f7fa;--card:#fff;--text:#14202e;--muted:#5b6b7d;--line:#dde3ea;--accent:#2f6fed;--ok:#1a7f4b;--bad:#c0392b;--warn:#b7791f}
 @media (prefers-color-scheme:dark){:root{--bg:#0e1722;--card:#16212e;--text:#e8eef5;--muted:#9fb0c3;--line:#2a3a4c;--accent:#6aa0ff;--ok:#4cc38a;--bad:#ff7a6b;--warn:#f0b35a}}
@@ -37,7 +38,7 @@ th{color:var(--muted);font-weight:600}
 </head>
 <body>
 <header>
-<a class="brand" href="/">Supervision réseau</a>
+<a class="brand" href="/"><img src="../static/Minerve-full.png"></a>
 {% if g.user %}
 <span class="muted">{{ g.user.email }}</span>
 <form method="post" action="/logout"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><button class="link">Déconnexion</button></form>

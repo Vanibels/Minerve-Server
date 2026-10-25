@@ -1,5 +1,3 @@
-"""Serveur de supervision réseau : API des agents + interface web (Flask, Neon, Vercel)."""
-
 import hashlib
 import hmac
 import math
@@ -11,20 +9,19 @@ from datetime import datetime, timezone
 from functools import wraps
 
 import psycopg
-from flask import (Flask, abort, flash, g, jsonify, redirect, render_template,
-                   request, session, url_for)
+from flask import Flask, abort, flash, g, jsonify, redirect, render_template,request, session, url_for
 from psycopg.rows import dict_row
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash, generate_password_hash
 
 ON_VERCEL = bool(os.environ.get("VERCEL"))
 if ON_VERCEL and not os.environ.get("SECRET_KEY"):
-    raise RuntimeError("SECRET_KEY doit être défini dans les variables d'environnement Vercel.")
+    raise RuntimeError("SECRET_KEY Variable manquante")
 
 app = Flask(__name__)
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 app.config.update(
-    SECRET_KEY=os.environ.get("SECRET_KEY", "dev-only-change-me"),
+    SECRET_KEY=os.environ.get("SECRET_KEY", "cookies"),
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
     SESSION_COOKIE_SECURE=ON_VERCEL,
@@ -33,11 +30,9 @@ app.config.update(
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 STATUSES = {"online", "offline", "interface_unavailable"}
-MIN_AGENTS_PER_OPERATOR = 3      # en dessous, pas de comparaison ni d'incident d'opérateur
-OPERATOR_SHARE = 0.5             # part d'agents en incident pour parler d'incident d'opérateur
+MIN_AGENTS_PER_OPERATOR = 3
+OPERATOR_SHARE = 0.5
 
-
-# --- Base de données (Neon) ------------------------------------------------
 def db():
     if "db" not in g:
         g.db = psycopg.connect(os.environ["DATABASE_URL"], autocommit=True, row_factory=dict_row)
@@ -49,9 +44,7 @@ def close_db(_error):
     conn = g.pop("db", None)
     if conn is not None:
         conn.close()
-
-
-# --- Utilitaires -----------------------------------------------------------
+        
 def sha(value):
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
@@ -80,7 +73,6 @@ def text(value, limit=200):
 
 
 def truncate_ip(ip):
-    """Minimisation : on ne garde pas l'adresse publique complète."""
     if not ip:
         return None
     ip = str(ip)[:60]
@@ -100,7 +92,6 @@ def duration_filter(seconds):
     return f"{minutes} min {secs} s" if minutes else f"{secs} s"
 
 
-# --- Sécurité des formulaires web -----------------------------------------
 def csrf_token():
     if "csrf" not in session:
         session["csrf"] = secrets.token_urlsafe(24)
@@ -143,7 +134,6 @@ def start_session(user_id):
 
 
 def link_pending_claim(user_id):
-    """Lie à ce compte l'agent dont le code de liaison est en attente dans la session."""
     code = session.pop("claim", None)
     if not code:
         return None
@@ -154,8 +144,6 @@ def link_pending_claim(user_id):
     ).fetchone()
     return (row["hostname"] or "Appareil") if row else None
 
-
-# --- Pages : comptes -------------------------------------------------------
 @app.route("/")
 def index():
     return redirect(url_for("dashboard" if session.get("user_id") else "login"))
@@ -211,7 +199,6 @@ def logout():
 
 @app.route("/link/<code>", methods=["GET", "POST"])
 def link(code):
-    """Page ouverte par l'agent à sa première connexion."""
     agent = db().execute(
         "SELECT hostname, os, interface, kind FROM agents WHERE claim_hash = %s AND user_id IS NULL",
         (sha(code),),
@@ -232,10 +219,7 @@ def link(code):
         return redirect(url_for("dashboard"))
     return render_template("link.html", agent=agent)
 
-
-# --- Page : tableau de bord ------------------------------------------------
 def incident_scope(incident, user_id):
-    """Portée d'un incident : appareil, foyer (compte) ou opérateur."""
     end = incident["ended_at"] or datetime.now(timezone.utc)
     if incident["asn"]:
         active = db().execute(
@@ -318,8 +302,6 @@ def dashboard():
     return render_template("dashboard.html", devices=devices, home=home,
                            operators=list(operators.values()), incidents=incidents)
 
-
-# --- API des agents --------------------------------------------------------
 def agent_auth():
     uid = request.headers.get("X-Agent-UID", "")
     header = request.headers.get("Authorization", "")
