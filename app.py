@@ -76,7 +76,6 @@ def text(value, limit=200):
 
 
 def truncate_ip(ip):
-    """Minimisation : on ne garde pas l'adresse publique complète."""
     if not ip:
         return None
     ip = str(ip)[:60]
@@ -97,7 +96,6 @@ def compact_filter(n):
 
 @app.context_processor
 def branding():
-    """Fichiers optionnels déposés dans static/ : logo pour le thème sombre, illustration de l'accueil."""
     exists = lambda name: os.path.exists(os.path.join(app.static_folder, name))
     return {"has_logo_dark": exists("Minerve-full-dark.png"), "has_hero": exists("hero.png")}
 
@@ -113,7 +111,6 @@ def duration_filter(seconds):
     return f"{minutes} min {secs} s" if minutes else f"{secs} s"
 
 
-# --- Sécurité des formulaires web -----------------------------------------
 def csrf_token():
     if "csrf" not in session:
         session["csrf"] = secrets.token_urlsafe(24)
@@ -167,8 +164,6 @@ def link_pending_claim(user_id):
     ).fetchone()
     return (row["hostname"] or "Appareil") if row else None
 
-
-# --- Pages : comptes -------------------------------------------------------
 @app.route("/")
 def index():
     if session.get("user_id"):
@@ -181,7 +176,7 @@ def index():
             "(SELECT count(*) FROM incidents) AS incidents"
         ).fetchone()
     except (psycopg.Error, KeyError):
-        stats = None    # base indisponible : la page d'accueil s'affiche sans les compteurs
+        stats = None
     return render_template("landing.html", stats=stats)
 
 
@@ -256,10 +251,7 @@ def link(code):
         return redirect(url_for("dashboard"))
     return render_template("link.html", agent=agent)
 
-
-# --- Page : tableau de bord ------------------------------------------------
 def incident_scope(incident, user_id):
-    """Portée d'un incident : appareil, foyer (compte) ou opérateur."""
     end = incident["ended_at"] or datetime.now(timezone.utc)
     if incident["asn"]:
         active = db().execute(
@@ -343,7 +335,6 @@ def dashboard():
                            operators=list(operators.values()), incidents=incidents)
 
 
-# --- Page : comparatif des opérateurs --------------------------------------
 @app.route("/operateurs")
 @login_required
 def operators_page():
@@ -394,8 +385,6 @@ def operators_page():
         best_availability=best_availability, best_latency=best_latency, minimum=MIN_AGENTS_PER_OPERATOR,
     )
 
-
-# --- API des agents --------------------------------------------------------
 def agent_auth():
     uid = request.headers.get("X-Agent-UID", "")
     header = request.headers.get("Authorization", "")
