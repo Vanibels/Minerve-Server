@@ -1,5 +1,3 @@
-"""Serveur de supervision réseau : API des agents + interface web (Flask, Neon, Vercel)."""
-
 import hashlib
 import hmac
 import math

@@ -3,10 +3,11 @@
 {% block content %}
 <div class="card narrow">
 <h1>Lier cet appareil ?</h1>
-<p><b>{{ agent.hostname }}</b> ({{ agent.os }}, {{ agent.interface }}, {{ agent.kind }}) demande à être lié à ton compte.</p>
+<p class="muted" style="margin:0 0 4px">Cet appareil demande à être lié à ton compte.</p>
+<p style="margin:12px 0 0"><b>{{ agent.hostname }}</b><br><span class="muted">{{ agent.os }} · {{ agent.interface }} · {{ agent.kind }}</span></p>
 <form method="post">
 <input type="hidden" name="csrf" value="{{ csrf_token() }}">
-<button>Lier à mon compte</button>
+<button class="full">Lier à mon compte</button>
 </form>
 </div>
 {% endblock %}
