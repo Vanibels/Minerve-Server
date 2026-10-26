@@ -141,7 +141,7 @@ footer{padding:28px 0;color:var(--soft);font-size:13px}
 <body>
 <header>
 <div class="wrap">
-<a class="brand {{ 'has-dark' if has_logo_dark }}" href="/"><img class="logo-light" src="{{ url_for('static', filename='Minerve-full.png') }}" alt="Minerve">{% if has_logo_dark %}<img class="logo-dark" src="{{ url_for('static', filename='Minerve-full-dark.png') }}" alt="Minerve">{% endif %}</a>
+<a class="brand {{ 'has-dark' if has_logo_dark }}" href="/"><img class="logo-light" src="{{ url_for('static', filename='Minerve-full-dark.png') }}" alt="Minerve">{% if has_logo_dark %}<img class="logo-dark" src="{{ url_for('static', filename='Minerve-full.png') }}" alt="Minerve">{% endif %}</a>
 <nav>
 {% if g.user %}
 <a href="{{ url_for('dashboard') }}" class="{{ 'on' if request.endpoint == 'dashboard' }}">Tableau de bord</a>
