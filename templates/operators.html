@@ -31,7 +31,7 @@
 {% for o in ranked %}
 <tr>
 <td class="rank">{{ loop.index }}</td>
-<td><b>{{ o.name }}</b> {% if o.mine %}<span class="pill mine">Ton opérateur</span>{% endif %}<div class="muted">{{ o.asn }}</div></td>
+<td><b>{{ o.name }}</b> {% if o.mine %}<span class="pill mine">Utilisé</span>{% endif %}<div class="muted">{{ o.asn }}</div></td>
 <td>{% if o.availability is not none %}<span class="bar"><i style="width: {{ "%.1f"|format(o.availability) }}%"></i></span>{{ "%.2f"|format(o.availability) }} %{% else %}n/d{% endif %}</td>
 <td class="num">{{ "%.0f"|format(o.median) ~ " ms" if o.median is not none else "n/d" }}</td>
 <td class="num">{{ "%.0f"|format(o.latency) ~ " ms" if o.latency is not none else "n/d" }}</td>
