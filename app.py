@@ -31,12 +31,10 @@ app.config.update(
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 STATUSES = {"online", "offline", "interface_unavailable"}
-MIN_AGENTS_PER_OPERATOR = 3      # en dessous, pas de comparaison ni d'incident d'opérateur
-OPERATOR_SHARE = 0.5             # part d'agents en incident pour parler d'incident d'opérateur
+MIN_AGENTS_PER_OPERATOR = 3
+OPERATOR_SHARE = 0.5
 PERIODS = {"24h": ("24 heures", "24 hours"), "7j": ("7 jours", "7 days"), "30j": ("30 jours", "30 days")}
 
-
-# --- Base de données (Neon) ------------------------------------------------
 def db():
     if "db" not in g:
         g.db = psycopg.connect(os.environ["DATABASE_URL"], autocommit=True, row_factory=dict_row, prepare_threshold=None)
@@ -50,7 +48,6 @@ def close_db(_error):
         conn.close()
 
 
-# --- Utilitaires -----------------------------------------------------------
 def sha(value):
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
@@ -86,6 +83,23 @@ def truncate_ip(ip):
     if "." in ip:
         return ".".join(ip.split(".")[:3] + ["0"])
     return ":".join(ip.split(":")[:3]) + "::"
+
+
+@app.template_filter("compact")
+def compact_filter(n):
+    n = int(n or 0)
+    if n < 1000:
+        return str(n)
+    if n < 1_000_000:
+        return f"{n / 1000:.1f}".replace(".", ",").replace(",0", "") + " k"
+    return f"{n / 1_000_000:.1f}".replace(".", ",").replace(",0", "") + " M"
+
+
+@app.context_processor
+def branding():
+    """Fichiers optionnels déposés dans static/ : logo pour le thème sombre, illustration de l'accueil."""
+    exists = lambda name: os.path.exists(os.path.join(app.static_folder, name))
+    return {"has_logo_dark": exists("Minerve-full-dark.png"), "has_hero": exists("hero.png")}
 
 
 @app.template_filter("duration")
@@ -157,7 +171,18 @@ def link_pending_claim(user_id):
 # --- Pages : comptes -------------------------------------------------------
 @app.route("/")
 def index():
-    return redirect(url_for("dashboard" if session.get("user_id") else "login"))
+    if session.get("user_id"):
+        return redirect(url_for("dashboard"))
+    try:
+        stats = db().execute(
+            "SELECT (SELECT count(*) FROM agents WHERE user_id IS NOT NULL) AS devices, "
+            "(SELECT count(*) FROM measures) AS measures, "
+            "(SELECT count(DISTINCT asn) FROM measures WHERE asn IS NOT NULL) AS operators, "
+            "(SELECT count(*) FROM incidents) AS incidents"
+        ).fetchone()
+    except (psycopg.Error, KeyError):
+        stats = None    # base indisponible : la page d'accueil s'affiche sans les compteurs
+    return render_template("landing.html", stats=stats)
 
 
 @app.route("/register", methods=["GET", "POST"])
