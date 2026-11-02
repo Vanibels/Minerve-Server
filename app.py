@@ -292,85 +292,65 @@ def window_stats(where, params):
 @app.route("/dashboard")
 @login_required
 def dashboard():
-  user_id = g.user["id"]
-  devices = db().execute(
-      "SELECT uid, hostname, os, interface, kind, last_seen FROM agents "
-      "WHERE user_id = %s ORDER BY created_at",
-      (user_id,),
-  ).fetchall()
+    user_id = g.user["id"]
+    devices = db().execute(
+        "SELECT uid, hostname, os, interface, kind, last_seen FROM agents "
+        "WHERE user_id = %s ORDER BY created_at", (user_id,),
+    ).fetchall()
 
-  operators = {}
-  for device in devices:
-    device.update(window_stats("agent_uid = %s", (device["uid"],)))
-    last = db().execute(
-        "SELECT status, latency_ms, fai, asn, ts FROM measures "
-        "WHERE agent_uid = %s ORDER BY ts DESC LIMIT 1",
-        (device["uid"],),
-    ).fetchone()
-    bandwidth = db().execute(
-        "SELECT bandwidth_mbps FROM measures WHERE agent_uid = %s "
-        "AND bandwidth_mbps IS NOT NULL ORDER BY ts DESC LIMIT 1",
-        (device["uid"],),
-    ).fetchone()
-    device["last"] = last
-    device["bandwidth"] = bandwidth["bandwidth_mbps"] if bandwidth else None
-    fresh = (
-        last and (datetime.now(timezone.utc) - last["ts"]).total_seconds() < 900
+    operators = {}
+    for device in devices:
+        device.update(window_stats("agent_uid = %s", (device["uid"],)))
+        last = db().execute(
+            "SELECT status, latency_ms, fai, asn, ts FROM measures "
+            "WHERE agent_uid = %s ORDER BY ts DESC LIMIT 1", (device["uid"],),
+        ).fetchone()
+        bandwidth = db().execute(
+            "SELECT bandwidth_mbps FROM measures WHERE agent_uid = %s "
+            "AND bandwidth_mbps IS NOT NULL ORDER BY ts DESC LIMIT 1", (device["uid"],),
+        ).fetchone()
+        device["last"] = last
+        device["bandwidth"] = bandwidth["bandwidth_mbps"] if bandwidth else None
+        fresh = last and (datetime.now(timezone.utc) - last["ts"]).total_seconds() < 900
+        device["state"] = "inactif" if not fresh else ("en ligne" if last["status"] == "online" else "hors ligne")
+        if last and last["asn"] and last["asn"] not in operators:
+            stats = window_stats("asn = %s", (last["asn"],))
+            stats["name"] = last["fai"] or last["asn"]
+            stats["enough"] = stats["agents"] >= MIN_AGENTS_PER_OPERATOR
+            operators[last["asn"]] = stats
+
+    home = window_stats(
+        "agent_uid IN (SELECT uid FROM agents WHERE user_id = %s)", (user_id,)
+    ) if devices else None
+
+    incidents = db().execute(
+        "SELECT i.*, a.hostname FROM incidents i JOIN agents a ON a.uid = i.agent_uid "
+        "WHERE a.user_id = %s ORDER BY i.started_at DESC LIMIT 20", (user_id,),
+    ).fetchall()
+    for incident in incidents:
+        incident["scope"] = incident_scope(incident, user_id)
+
+    # Graphiques : moyenne par heure sur les 24 dernières heures, tous les appareils du foyer.
+    # generate_series garantit 24 points, même pour les heures sans mesure (valeur nulle).
+    hours = db().execute(
+        "SELECT g.h AS hour, "
+        "avg(m.latency_ms) FILTER (WHERE m.status = 'online') AS latency, "
+        "avg(m.bandwidth_mbps) AS bandwidth "
+        "FROM generate_series(date_trunc('hour', now()) - interval '23 hours', "
+        "date_trunc('hour', now()), interval '1 hour') AS g(h) "
+        "LEFT JOIN measures m ON m.ts >= g.h AND m.ts < g.h + interval '1 hour' "
+        "AND m.agent_uid IN (SELECT uid FROM agents WHERE user_id = %s) "
+        "GROUP BY g.h ORDER BY g.h", (user_id,),
+    ).fetchall()
+    chart_labels = [row["hour"].strftime("%H:%M") for row in hours]
+    chart_latency = [round(row["latency"], 1) if row["latency"] is not None else None for row in hours]
+    chart_bandwidth = [round(row["bandwidth"], 1) if row["bandwidth"] is not None else None for row in hours]
+
+    return render_template(
+        "dashboard.html", devices=devices, home=home, operators=list(operators.values()),
+        incidents=incidents, chart_labels=chart_labels, chart_latency=chart_latency,
+        chart_bandwidth=chart_bandwidth,
     )
-    device["state"] = (
-        "inactif"
-        if not fresh
-        else ("en ligne" if last["status"] == "online" else "hors ligne")
-    )
-    if last and last["asn"] and last["asn"] not in operators:
-      stats = window_stats("asn = %s", (last["asn"],))
-      stats["name"] = last["fai"] or last["asn"]
-      stats["enough"] = stats["agents"] >= MIN_AGENTS_PER_OPERATOR
-      operators[last["asn"]] = stats
-
-  home = (
-      window_stats(
-          "agent_uid IN (SELECT uid FROM agents WHERE user_id = %s)",
-          (user_id,),
-      )
-      if devices
-      else None
-  )
-
-  incidents = db().execute(
-      "SELECT i.*, a.hostname FROM incidents i JOIN agents a ON a.uid = i.agent_uid "
-      "WHERE a.user_id = %s ORDER BY i.started_at DESC LIMIT 20",
-      (user_id,),
-  ).fetchall()
-  for incident in incidents:
-    incident["scope"] = incident_scope(incident, user_id)
-
-  history_measures = db().execute(
-      """
-        SELECT ts, latency_ms, bandwidth_mbps 
-        FROM measures 
-        WHERE agent_uid IN (SELECT uid FROM agents WHERE user_id = %s)
-        AND bandwidth_mbps IS NOT NULL
-        ORDER BY ts ASC 
-        LIMIT 20
-    """,
-      (user_id,),
-  ).fetchall()
-
-  chart_labels = [m["ts"].strftime("%H:%M") for m in history_measures]
-  chart_latency = [m["latency_ms"] for m in history_measures]
-  chart_bandwidth = [m["bandwidth_mbps"] for m in history_measures]
-
-  return render_template(
-      "dashboard.html",
-      devices=devices,
-      home=home,
-      operators=list(operators.values()),
-      incidents=incidents,
-      chart_labels=chart_labels,
-      chart_latency=chart_latency,
-      chart_bandwidth=chart_bandwidth,
-  )
 
 @app.route("/operateurs")
 @login_required

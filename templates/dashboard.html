@@ -43,46 +43,17 @@
 </tr>
 {% endfor %}
 </tbody></table></div>
-{% endif %}
-<h2>Diagramme de disponibilité</h2>
-<div class="container">
-        <h1>📊 Dashboard Foyer & Agents</h1>
-        <p>Suivi en temps réel des mesures et des incidents réseau.</p>
 
-        <div class="grid">
-            <div class="card">
-                <h3>Latence (ms)</h3>
-                <canvas id="latencyChart"></canvas>
-            </div>
-            <div class="card">
-                <h3>Bande Passante (Mbps)</h3>
-                <canvas id="bandwidthChart"></canvas>
-            </div>
-        </div>
-        <div class="card">
-            <h3>🚨 Derniers Incidents Enregistrés</h3>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Date de début</th>
-                        <th>FAI</th>
-                        <th>Durée (s)</th>
-                        <th>Raison</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for inc in incidents %}
-                    <tr>
-                        <td>{{ inc.started_at }}</td>
-                        <td>{{ inc.fai }}</td>
-                        <td>{{ inc.duration_s }}s</td>
-                        <td>{{ inc.reason }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-    </div>
+<h2>Latence et débit · 24 h</h2>
+<div class="grid">
+<div class="card"><div class="label">Latence moyenne (ms), par heure</div>
+<div style="position:relative;height:240px;margin-top:12px"><canvas id="latencyChart"></canvas></div></div>
+<div class="card"><div class="label">Débit moyen (Mbit/s), par heure</div>
+<div style="position:relative;height:240px;margin-top:12px"><canvas id="bandwidthChart"></canvas></div></div>
+</div>
+<p class="muted">Moyennes de tous les appareils du foyer. Heures en UTC. Le débit n'est mesuré qu'environ toutes les 30 minutes.</p>
+{% endif %}
+
 <h2>Historique des incidents</h2>
 <div class="card table-wrap">
 {% if incidents %}
@@ -103,40 +74,60 @@
 <p class="muted" style="margin:0;padding:22px">Aucun incident enregistré.</p>
 {% endif %}
 </div>
+{% if devices %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js"></script>
 <script>
-        const labels = JSON.parse('{{ labels | tojson | safe }}');
-        const latencyData = JSON.parse('{{ latency | tojson | safe }}');
-        const bandwidthData = JSON.parse('{{ bandwidth | tojson | safe }}');
-        const ctxLatency = document.getElementById('latencyChart').getContext('2d');
-        new Chart(ctxLatency, {
-            type: 'line',
-            data: {
-                labels: labels,
-                datasets: [{
-                    label: 'Latence (ms)',
-                    data: latencyData,
-                    borderColor: '#ff6384',
-                    backgroundColor: 'rgba(255, 99, 132, 0.1)',
-                    borderWidth: 2,
-                    tension: 0.3,
-                    fill: true
-                }]
-            },
-            options: { responsive: true, scales: { y: { beginAtZero: true } } }
-        });
-        const ctxBandwidth = document.getElementById('bandwidthChart').getContext('2d');
-        new Chart(ctxBandwidth, {
-            type: 'bar',
-            data: {
-                labels: labels,
-                datasets: [{
-                    label: 'Débit (Mbps)',
-                    data: bandwidthData,
-                    backgroundColor: '#36a2eb',
-                    borderRadius: 4
-                }]
-            },
-            options: { responsive: true, scales: { y: { beginAtZero: true } } }
-        });
-    </script>
+(function () {
+  const labels = {{ chart_labels | tojson }};
+  const latencyData = {{ chart_latency | tojson }};
+  const bandwidthData = {{ chart_bandwidth | tojson }};
+  const color = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+  Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
+  Chart.defaults.font.size = 12;
+
+  const options = () => ({
+    responsive: true,
+    maintainAspectRatio: false,
+    interaction: { mode: 'index', intersect: false },
+    plugins: { legend: { display: false } },
+    scales: {
+      x: { grid: { display: false }, ticks: { maxTicksLimit: 8 } },
+      y: { beginAtZero: true, grid: {} },
+    },
+  });
+
+  const latency = new Chart(document.getElementById('latencyChart'), {
+    type: 'line',
+    data: { labels, datasets: [{ label: 'Latence (ms)', data: latencyData, borderWidth: 2, tension: 0.3, pointRadius: 2, spanGaps: true, fill: true }] },
+    options: options(),
+  });
+  const bandwidth = new Chart(document.getElementById('bandwidthChart'), {
+    type: 'bar',
+    data: { labels, datasets: [{ label: 'Débit (Mbit/s)', data: bandwidthData, borderRadius: 3 }] },
+    options: options(),
+  });
+
+  // Couleurs reprises du thème (clair ou sombre), mises à jour quand on le change
+  function applyTheme() {
+    const accent = color('--accent');
+    const grid = color('--line');
+    const text = color('--soft');
+    const line = latency.data.datasets[0];
+    line.borderColor = accent;
+    line.pointBackgroundColor = accent;
+    line.backgroundColor = accent + '1f';
+    bandwidth.data.datasets[0].backgroundColor = accent;
+    for (const chart of [latency, bandwidth]) {
+      chart.options.scales.x.ticks.color = text;
+      chart.options.scales.y.ticks.color = text;
+      chart.options.scales.y.grid.color = grid;
+      chart.update();
+    }
+  }
+  applyTheme();
+  new MutationObserver(applyTheme).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+})();
+</script>
+{% endif %}
 {% endblock %}
