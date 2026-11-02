@@ -44,7 +44,45 @@
 {% endfor %}
 </tbody></table></div>
 {% endif %}
+<h2>Diagramme de disponibilité</h2>
+<div class="container">
+        <h1>📊 Dashboard Foyer & Agents</h1>
+        <p>Suivi en temps réel des mesures et des incidents réseau.</p>
 
+        <div class="grid">
+            <div class="card">
+                <h3>Latence (ms)</h3>
+                <canvas id="latencyChart"></canvas>
+            </div>
+            <div class="card">
+                <h3>Bande Passante (Mbps)</h3>
+                <canvas id="bandwidthChart"></canvas>
+            </div>
+        </div>
+        <div class="card">
+            <h3>🚨 Derniers Incidents Enregistrés</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Date de début</th>
+                        <th>FAI</th>
+                        <th>Durée (s)</th>
+                        <th>Raison</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for inc in incidents %}
+                    <tr>
+                        <td>{{ inc.started_at }}</td>
+                        <td>{{ inc.fai }}</td>
+                        <td>{{ inc.duration_s }}s</td>
+                        <td>{{ inc.reason }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
 <h2>Historique des incidents</h2>
 <div class="card table-wrap">
 {% if incidents %}
@@ -65,4 +103,40 @@
 <p class="muted" style="margin:0;padding:22px">Aucun incident enregistré.</p>
 {% endif %}
 </div>
+<script>
+        const labels = JSON.parse('{{ labels | tojson | safe }}');
+        const latencyData = JSON.parse('{{ latency | tojson | safe }}');
+        const bandwidthData = JSON.parse('{{ bandwidth | tojson | safe }}');
+        const ctxLatency = document.getElementById('latencyChart').getContext('2d');
+        new Chart(ctxLatency, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Latence (ms)',
+                    data: latencyData,
+                    borderColor: '#ff6384',
+                    backgroundColor: 'rgba(255, 99, 132, 0.1)',
+                    borderWidth: 2,
+                    tension: 0.3,
+                    fill: true
+                }]
+            },
+            options: { responsive: true, scales: { y: { beginAtZero: true } } }
+        });
+        const ctxBandwidth = document.getElementById('bandwidthChart').getContext('2d');
+        new Chart(ctxBandwidth, {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Débit (Mbps)',
+                    data: bandwidthData,
+                    backgroundColor: '#36a2eb',
+                    borderRadius: 4
+                }]
+            },
+            options: { responsive: true, scales: { y: { beginAtZero: true } } }
+        });
+    </script>
 {% endblock %}
